@@ -1,0 +1,129 @@
+name: Build Meta Quest APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      unityVersion:
+        description: 'Unity editor version installed on the runner'
+        required: false
+        default: '6000.0.74f1'
+      developmentBuild:
+        description: 'Build with Development Build enabled'
+        required: false
+        default: 'false'
+  push:
+    branches: [main]
+    paths:
+      - 'NsdkSamples/**'
+      - '.github/workflows/build-quest-apk.yml'
+
+concurrency:
+  group: build-quest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (Meta Quest)
+    runs-on: [self-hosted, Windows]
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      UNITY_VERSION: ${{ inputs.unityVersion || '6000.0.74f1' }}
+      UNITY_HUB_EDITOR_ROOT: 'C:\Program Files\Unity\Hub\Editor'
+      NSDK_DEVELOPMENT_BUILD: ${{ inputs.developmentBuild || 'false' }}
+      APK_NAME: NsdkSamples-Quest.apk
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          clean: false
+
+      - name: Resolve Unity editor path
+        id: unity
+        run: |
+          $editor = Join-Path $env:UNITY_HUB_EDITOR_ROOT ("{0}\Editor\Unity.exe" -f $env:UNITY_VERSION)
+          if (-not (Test-Path $editor)) {
+            Write-Error "Unity editor not found: $editor. Install $env:UNITY_VERSION with Android Build Support on this runner."
+            exit 1
+          }
+          "path=$editor" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Inject Meta Quest packages into manifest
+        run: |
+          ./.github/ci/Enable-QuestPackages.ps1 -ManifestPath (Join-Path $env:GITHUB_WORKSPACE 'NsdkSamples\Packages\manifest.json')
+
+      - name: Import Meta Plugin samples (Unity batchmode)
+        run: |
+          $unity = '${{ steps.unity.outputs.path }}'
+          $projectPath = Join-Path $env:GITHUB_WORKSPACE 'NsdkSamples'
+          $outDir = Join-Path $env:GITHUB_WORKSPACE 'build\Quest'
+          if (Test-Path $outDir) { Remove-Item $outDir -Recurse -Force }
+          New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+          $logPath = Join-Path $outDir 'unity-prepare.log'
+
+          $arguments = @(
+            '-batchmode', '-quit', '-nographics',
+            '-projectPath', $projectPath,
+            '-buildTarget', 'Android',
+            '-executeMethod', 'CIBuild.PrepareQuest',
+            '-logFile', $logPath
+          )
+          Write-Host "Running: $unity $($arguments -join ' ')"
+          $proc = Start-Process -FilePath $unity -ArgumentList $arguments -NoNewWindow -PassThru -Wait
+          $code = $proc.ExitCode
+          Write-Host "Unity exited with code $code"
+          if ($code -ne 0) {
+            if (Test-Path $logPath) {
+              Write-Host "===== unity-prepare.log (tail 200) ====="
+              Get-Content $logPath -Tail 200
+            }
+            Write-Error "Sample import failed with exit code $code"
+            exit $code
+          }
+
+      - name: Build APK (Unity batchmode)
+        run: |
+          $unity = '${{ steps.unity.outputs.path }}'
+          $projectPath = Join-Path $env:GITHUB_WORKSPACE 'NsdkSamples'
+          $outDir = Join-Path $env:GITHUB_WORKSPACE 'build\Quest'
+          $apkPath = Join-Path $outDir $env:APK_NAME
+          $logPath = Join-Path $outDir 'unity-build.log'
+
+          $arguments = @(
+            '-batchmode', '-quit', '-nographics',
+            '-projectPath', $projectPath,
+            '-buildTarget', 'Android',
+            '-executeMethod', 'CIBuild.BuildQuest',
+            '-customBuildPath', $apkPath,
+            '-logFile', $logPath
+          )
+          Write-Host "Running: $unity $($arguments -join ' ')"
+          $proc = Start-Process -FilePath $unity -ArgumentList $arguments -NoNewWindow -PassThru -Wait
+          $code = $proc.ExitCode
+          Write-Host "Unity exited with code $code"
+
+          if (Test-Path $logPath) {
+            Write-Host "===== unity-build.log (tail 200) ====="
+            Get-Content $logPath -Tail 200
+          }
+          if ($code -ne 0) { Write-Error "Unity build failed with exit code $code"; exit $code }
+          if (-not (Test-Path $apkPath)) { Write-Error "APK not found: $apkPath"; exit 1 }
+          Write-Host ("APK built: {0} ({1:N0} bytes)" -f $apkPath, (Get-Item $apkPath).Length)
+
+      - name: Upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nsdk-samples-quest-apk
+          path: |
+            build/Quest/*.apk
+            build/Quest/unity-build.log
+            build/Quest/unity-prepare.log
+          if-no-files-found: error
+          retention-days: 14
