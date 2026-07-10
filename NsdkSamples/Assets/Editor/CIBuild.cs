@@ -32,25 +32,79 @@ public static class CIBuild
         Build("Android");
     }
 
+    /// <summary>
+    /// First Unity invocation of the Quest job: imports the NSDK Meta Plugin
+    /// samples so their scripts and scenes exist in Assets. Must run in a
+    /// separate invocation from BuildQuest because the import triggers a
+    /// domain reload that would abort a running executeMethod.
+    /// </summary>
+    public static void PrepareQuest()
+    {
+        var samples = UnityEditor.PackageManager.UI.Sample
+            .FindByPackage("com.nianticspatial.nsdk.metaquest", null).ToList();
+        if (samples.Count == 0)
+        {
+            throw new Exception("[CIBuild] No samples found in com.nianticspatial.nsdk.metaquest.");
+        }
+        foreach (var sample in samples)
+        {
+            if (sample.isImported)
+            {
+                Debug.Log($"[CIBuild] Sample already imported: {sample.displayName}");
+                continue;
+            }
+            if (!sample.Import())
+            {
+                throw new Exception($"[CIBuild] Failed to import sample: {sample.displayName}");
+            }
+            Debug.Log($"[CIBuild] Imported sample: {sample.displayName}");
+        }
+        AssetDatabase.Refresh();
+        AssetDatabase.SaveAssets();
+    }
+
     public static void BuildQuest()
     {
         ConfigureAndroidLoaders(new[] { OpenXRLoaderAsset });
         EnableOpenXRFeatures(
             "com.unity.openxr.feature.metaquest",
-            "com.unity.openxr.feature.input.oculustouchcontroller");
-        // Quest devices are ARM64 only.
+            "com.unity.openxr.feature.input.oculustouch",
+            "com.nianticspatial.nsdk.features.meta.integration",
+            "com.nianticspatial.nsdk.features.meta.arfoundation-meta-camera");
+        // Quest devices are ARM64 only; recent Meta OS requires minSdk 32.
         PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
-        Build("Quest");
+        PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel32;
+        Build("Quest", GetQuestScenes());
     }
 
-    private static void Build(string flavor)
+    /// <summary>
+    /// Scenes imported from the NSDK Meta Plugin samples (Home first).
+    /// Falls back to the regular build scenes if the samples are absent.
+    /// </summary>
+    private static string[] GetQuestScenes()
+    {
+        var scenes = AssetDatabase.FindAssets("t:Scene", new[] { "Assets/Samples" })
+            .Select(AssetDatabase.GUIDToAssetPath)
+            .Where(p => p.Contains("Meta Plugin"))
+            .OrderBy(p => p.EndsWith("/Home.unity") ? 0 : 1)
+            .ThenBy(p => p)
+            .ToArray();
+        if (scenes.Length == 0)
+        {
+            Debug.LogWarning("[CIBuild] No Meta Plugin sample scenes found; using default build scenes.");
+            return null;
+        }
+        return scenes;
+    }
+
+    private static void Build(string flavor, string[] scenes = null)
     {
         PlayerSettings.SetScriptingBackend(NamedBuildTarget.Android, ScriptingImplementation.IL2CPP);
         EditorUserBuildSettings.buildAppBundle = false;
 
         var options = new BuildPlayerOptions
         {
-            scenes = EditorBuildSettings.scenes.Where(s => s.enabled).Select(s => s.path).ToArray(),
+            scenes = scenes ?? EditorBuildSettings.scenes.Where(s => s.enabled).Select(s => s.path).ToArray(),
             locationPathName = GetOutputPath(flavor),
             target = BuildTarget.Android,
             options = IsDevelopmentBuild() ? BuildOptions.Development : BuildOptions.None,

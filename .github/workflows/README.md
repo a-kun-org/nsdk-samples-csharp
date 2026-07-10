@@ -18,9 +18,15 @@ APK とビルドログは Actions の Artifacts からダウンロードでき�
 | 設定 | Android | Quest |
 |---|---|---|
 | XR ローダー (Android) | Nsdk AR Core Loader | OpenXR Loader |
-| OpenXR 機能 | — | Meta Quest Support + Oculus Touch Controller Profile |
+| OpenXR 機能 | — | Meta Quest Support / Oculus Touch / NSDK Meta Integration / NSDK Meta AR Camera (Passthrough) |
+| シーン | Scenes in Build（スマホAR用） | NSDK Meta Plugin サンプル（Home 先頭、Prepare ステップでインポート） |
 | アーキテクチャ | ARMv7 + ARM64 | ARM64 のみ |
+| minSdkVersion | 24（プロジェクト設定） | 32 |
 | Scripting Backend | IL2CPP | IL2CPP |
+
+Quest ジョブは Unity を 2 回起動します。1 回目（`CIBuild.PrepareQuest`）で
+`com.nianticspatial.nsdk.metaquest` の Samples をインポートし（ドメインリロード境界のため分離）、
+2 回目（`CIBuild.BuildQuest`）で XR 設定を切り替えてビルドします。
 
 ## ランナー要件
 
@@ -33,9 +39,9 @@ APK とビルドログは Actions の Artifacts からダウンロードでき�
 
 ## Meta Quest ビルドに関する補足
 
-現状の Quest フレーバーは OpenXR + Meta Quest Support を有効にした APK を生成します
-（Quest 3 にインストール・起動可能）。Niantic の AR 機能（パススルーカメラ・VPS 等）を
-Quest 上でフル動作させるには、公式ドキュメントの手順どおり
-`com.nianticspatial.nsdk.metaquest`（nsdk-library-upm-quest3）と
-XR Interaction Toolkit の導入、Meta Plugin サンプルシーンのインポートが別途必要です。
+Quest フレーバーは公式ドキュメントの手順に沿って
+`com.nianticspatial.nsdk.metaquest`（nsdk-library-upm-quest3）+ XR Interaction Toolkit を導入し、
+Meta Plugin のサンプルシーンをビルドします（パススルーカメラ等の NSDK 機能に対応）。
+Meta の依存パッケージ（MRUK 等）は scoped registry `https://npm.developer.oculus.com` から解決します。
+VPS 等の認証が必要な機能を実機で使うには Niantic Spatial の Developer Token が別途必要です。
 https://www.nianticspatial.com/docs/nsdk/setup/
