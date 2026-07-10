@@ -1,5 +1,8 @@
 name: Runner Probe
-on: workflow_dispatch
+on:
+  push:
+    branches: [ci/runner-probe]
+  workflow_dispatch:
 jobs:
   probe:
     runs-on: [self-hosted, Windows]
