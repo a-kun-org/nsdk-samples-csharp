@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       unityVersion:
-        description: 'Unity version override (leave "auto" to read ProjectVersion.txt)'
+        description: 'Unity editor version installed on the runner'
         required: false
-        default: 'auto'
-      buildName:
-        description: 'Output APK base name'
+        default: '6000.0.74f1'
+      developmentBuild:
+        description: 'Build with Development Build enabled'
         required: false
-        default: 'NsdkSamples-Android'
+        default: 'false'
   push:
     branches: [main]
     paths:
@@ -23,48 +23,75 @@ concurrency:
 
 jobs:
   build:
-    name: Build (Android)
-    runs-on: ubuntu-latest
+    name: Build (Android phone AR)
+    runs-on: [self-hosted, Windows, nsdk-samples]
+    timeout-minutes: 120
     permissions:
       contents: read
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      UNITY_VERSION: ${{ inputs.unityVersion || '6000.0.74f1' }}
+      UNITY_HUB_EDITOR_ROOT: 'C:\Program Files\Unity\Hub\Editor'
+      NSDK_DEVELOPMENT_BUILD: ${{ inputs.developmentBuild || 'false' }}
+      APK_NAME: NsdkSamples-Android.apk
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           lfs: true
+          clean: false
 
-      - name: Free disk space
+      - name: Resolve Unity editor path
+        id: unity
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk /opt/ghc /opt/hostedtoolcache/CodeQL || true
-          df -h
+          $editor = Join-Path $env:UNITY_HUB_EDITOR_ROOT ("{0}\Editor\Unity.exe" -f $env:UNITY_VERSION)
+          if (-not (Test-Path $editor)) {
+            Write-Error "Unity editor not found: $editor. Install $env:UNITY_VERSION with Android Build Support on this runner."
+            exit 1
+          }
+          "path=$editor" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - name: Cache Library
-        uses: actions/cache@v4
-        with:
-          path: NsdkSamples/Library
-          key: Library-Android-${{ hashFiles('NsdkSamples/Packages/manifest.json', 'NsdkSamples/ProjectSettings/ProjectVersion.txt') }}
-          restore-keys: |
-            Library-Android-
-            Library-
+      - name: Build APK (Unity batchmode)
+        run: |
+          $unity = '${{ steps.unity.outputs.path }}'
+          $projectPath = Join-Path $env:GITHUB_WORKSPACE 'NsdkSamples'
+          $outDir = Join-Path $env:GITHUB_WORKSPACE 'build\Android'
+          if (Test-Path $outDir) { Remove-Item $outDir -Recurse -Force }
+          New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+          $apkPath = Join-Path $outDir $env:APK_NAME
+          $logPath = Join-Path $outDir 'unity-build.log'
 
-      - name: Build APK
-        uses: game-ci/unity-builder@v4
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
-          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
-          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
-          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
-        with:
-          projectPath: NsdkSamples
-          unityVersion: ${{ inputs.unityVersion || 'auto' }}
-          targetPlatform: Android
-          androidExportType: androidPackage
-          buildName: ${{ inputs.buildName || 'NsdkSamples-Android' }}
-          allowDirtyBuild: true
+          $arguments = @(
+            '-batchmode', '-quit', '-nographics',
+            '-projectPath', $projectPath,
+            '-buildTarget', 'Android',
+            '-executeMethod', 'CIBuild.BuildAndroid',
+            '-customBuildPath', $apkPath,
+            '-logFile', $logPath
+          )
+          Write-Host "Running: $unity $($arguments -join ' ')"
+          $proc = Start-Process -FilePath $unity -ArgumentList $arguments -NoNewWindow -PassThru -Wait
+          $code = $proc.ExitCode
+          Write-Host "Unity exited with code $code"
+
+          if (Test-Path $logPath) {
+            Write-Host "===== unity-build.log (tail 200) ====="
+            Get-Content $logPath -Tail 200
+          }
+          if ($code -ne 0) { Write-Error "Unity build failed with exit code $code"; exit $code }
+          if (-not (Test-Path $apkPath)) { Write-Error "APK not found: $apkPath"; exit 1 }
+          Write-Host ("APK built: {0} ({1:N0} bytes)" -f $apkPath, (Get-Item $apkPath).Length)
 
       - name: Upload APK
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: nsdk-samples-android-apk
-          path: build/Android/*.apk
+          path: |
+            build/Android/*.apk
+            build/Android/unity-build.log
           if-no-files-found: error
+          retention-days: 14
