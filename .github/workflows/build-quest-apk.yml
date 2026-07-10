@@ -24,7 +24,7 @@ concurrency:
 jobs:
   build:
     name: Build (Meta Quest)
-    runs-on: [self-hosted, Windows, nsdk-samples]
+    runs-on: [self-hosted, Windows]
     timeout-minutes: 120
     permissions:
       contents: read

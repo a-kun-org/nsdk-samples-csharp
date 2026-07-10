@@ -24,7 +24,7 @@ APK とビルドログは Actions の Artifacts からダウンロードでき�
 
 ## ランナー要件
 
-- ラベル: `self-hosted`, `Windows`, `nsdk-samples`
+- ラベル: `self-hosted`, `Windows`
 - Unity Hub の既定パス `C:\Program Files\Unity\Hub\Editor\<version>` に
   Android Build Support (SDK/NDK/OpenJDK) 付きの Unity がインストール済みであること
 - 既定バージョンは `6000.0.74f1`（`workflow_dispatch` の `unityVersion` で変更可。
