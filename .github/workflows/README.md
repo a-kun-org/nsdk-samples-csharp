@@ -24,9 +24,15 @@ APK とビルドログは Actions の Artifacts からダウンロードでき�
 | minSdkVersion | 24（プロジェクト設定） | 32 |
 | Scripting Backend | IL2CPP | IL2CPP |
 
-Quest ジョブは Unity を 2 回起動します。1 回目（`CIBuild.PrepareQuest`）で
-`com.nianticspatial.nsdk.metaquest` の Samples をインポートし（ドメインリロード境界のため分離）、
+Quest ジョブは、まず `.github/ci/Enable-QuestPackages.ps1` で manifest に Quest 用パッケージ
+（`com.nianticspatial.nsdk.metaquest` + XRI + Meta scoped registry）を注入してから、Unity を 2 回起動します。
+1 回目（`CIBuild.PrepareQuest`）で Meta Plugin の Samples をインポートし（ドメインリロード境界のため分離）、
 2 回目（`CIBuild.BuildQuest`）で XR 設定を切り替えてビルドします。
+
+コミットされた manifest は upstream と同一構成です。Meta XR SDK（`com.meta.xr.sdk.core`）の
+ビルドフックは Meta 系ローダーを使わない Android ビルドを失敗させるため、
+スマホ AR フレーバーには Meta 系パッケージを一切含めません（Android ジョブは
+前回 Quest 実行の残骸 `Assets/Samples` も削除してからビルドします）。
 
 ## ランナー要件
 

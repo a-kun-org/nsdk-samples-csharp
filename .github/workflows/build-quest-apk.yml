@@ -54,6 +54,10 @@ jobs:
           }
           "path=$editor" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
+      - name: Inject Meta Quest packages into manifest
+        run: |
+          ./.github/ci/Enable-QuestPackages.ps1 -ManifestPath (Join-Path $env:GITHUB_WORKSPACE 'NsdkSamples\Packages\manifest.json')
+
       - name: Import Meta Plugin samples (Unity batchmode)
         run: |
           $unity = '${{ steps.unity.outputs.path }}'

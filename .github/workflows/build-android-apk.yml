@@ -54,6 +54,16 @@ jobs:
           }
           "path=$editor" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
+      - name: Remove Quest-only imported samples
+        run: |
+          # The runner workspace persists between runs (clean: false). A prior
+          # Quest run imports Meta Plugin samples whose asmdefs reference the
+          # Quest-only packages; they must not compile in the phone AR flavor.
+          $samplesDir = Join-Path $env:GITHUB_WORKSPACE 'NsdkSamples\Assets\Samples'
+          foreach ($p in @($samplesDir, "$samplesDir.meta")) {
+            if (Test-Path $p) { Remove-Item $p -Recurse -Force; Write-Host "Removed $p" }
+          }
+
       - name: Build APK (Unity batchmode)
         run: |
           $unity = '${{ steps.unity.outputs.path }}'
