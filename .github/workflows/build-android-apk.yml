@@ -1,0 +1,70 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      unityVersion:
+        description: 'Unity version override (leave "auto" to read ProjectVersion.txt)'
+        required: false
+        default: 'auto'
+      buildName:
+        description: 'Output APK base name'
+        required: false
+        default: 'NsdkSamples-Android'
+  push:
+    branches: [main]
+    paths:
+      - 'NsdkSamples/**'
+      - '.github/workflows/build-android-apk.yml'
+
+concurrency:
+  group: build-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (Android)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h
+
+      - name: Cache Library
+        uses: actions/cache@v4
+        with:
+          path: NsdkSamples/Library
+          key: Library-Android-${{ hashFiles('NsdkSamples/Packages/manifest.json', 'NsdkSamples/ProjectSettings/ProjectVersion.txt') }}
+          restore-keys: |
+            Library-Android-
+            Library-
+
+      - name: Build APK
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+        with:
+          projectPath: NsdkSamples
+          unityVersion: ${{ inputs.unityVersion || 'auto' }}
+          targetPlatform: Android
+          androidExportType: androidPackage
+          buildName: ${{ inputs.buildName || 'NsdkSamples-Android' }}
+          allowDirtyBuild: true
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: nsdk-samples-android-apk
+          path: build/Android/*.apk
+          if-no-files-found: error
